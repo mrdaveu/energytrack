@@ -4,6 +4,7 @@
     --accent: #0d2818;
     --energy-base: #0d2818;
     --dim: rgba(13, 40, 24, 0.35);
+    --gridline: rgba(13, 40, 24, 0.08);
 }
 
 * {
@@ -15,72 +16,45 @@
 html, body {
     height: 100%;
     overflow: hidden;
+    background: var(--bg);
 }
 
 body {
-    background: var(--bg);
     color: var(--text);
     font-family: 'JetBrains Mono', 'Courier New', monospace;
     font-size: 42px;
     line-height: 1.4;
 }
 
-#app {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-/* Exit draft button */
-#exit-draft {
+/* Timeline - full viewport scrollable */
+#timeline {
     position: fixed;
-    top: 24px;
-    left: 24px;
-    width: 64px;
-    height: 64px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: var(--dim);
-    font-size: 48px;
-    z-index: 100;
-    transition: color 0.15s;
-}
-
-#exit-draft:hover {
-    color: var(--text);
-}
-
-#exit-draft.hidden {
-    display: none;
-}
-
-/* Timeline sections */
-#timeline-past {
-    flex: 1;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     overflow-y: auto;
-    padding: 100px 48px 48px;
-    display: flex;
-    flex-direction: column-reverse;
+    overflow-x: hidden;
 }
 
-#timeline-future {
-    flex: 1;
-    overflow-y: auto;
-    padding: 48px;
-    display: flex;
-    flex-direction: column;
-}
-
-/* Input area - fixed in middle */
-#input-area {
-    flex-shrink: 0;
-    padding: 0 48px;
-    background: var(--bg);
+#timeline-content {
     position: relative;
-    z-index: 10;
+    width: 100%;
+    min-height: 100vh;
+    padding: 0 48px;
+}
+
+/* Input area - FIXED at vertical center */
+#input-area {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 24px 48px;
+    background: var(--bg);
+    z-index: 50;
+    box-shadow: 0 0 60px 30px var(--bg);
 }
 
 #input-row {
@@ -144,7 +118,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 0 32px;
+    padding: 16px 0 0;
 }
 
 #timestamp-display {
@@ -170,6 +144,31 @@ body {
 
 #save-btn:active {
     background: rgba(13, 40, 24, 0.1);
+}
+
+/* Exit draft button */
+#exit-draft {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    width: 64px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--dim);
+    font-size: 48px;
+    z-index: 100;
+    transition: color 0.15s;
+}
+
+#exit-draft:hover {
+    color: var(--text);
+}
+
+#exit-draft.hidden {
+    display: none;
 }
 
 /* Energy track (appears during drag) */
@@ -205,18 +204,20 @@ body {
     transform: translateY(-50%);
 }
 
-/* Timeline entries */
+/* Timeline entries - absolutely positioned */
 .entry {
+    position: absolute;
+    left: 48px;
+    right: 48px;
     display: flex;
     align-items: flex-start;
     gap: 24px;
-    padding: 16px 0;
 }
 
 .entry-time {
     font-size: 28px;
     color: var(--dim);
-    min-width: 140px;
+    min-width: 160px;
     flex-shrink: 0;
 }
 
@@ -243,28 +244,6 @@ body {
     background: var(--energy-base);
 }
 
-/* Day separator */
-.day-separator {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    padding: 32px 0;
-}
-
-.day-separator-line {
-    flex: 1;
-    height: 2px;
-    background: var(--accent);
-    opacity: 0.2;
-}
-
-.day-separator-label {
-    font-size: 28px;
-    color: var(--accent);
-    opacity: 0.4;
-    text-transform: uppercase;
-}
-
 /* Draft entry preview */
 .entry.draft {
     opacity: 0.5;
@@ -273,15 +252,48 @@ body {
     margin-left: -24px;
 }
 
-/* Spacer for time gaps */
-.time-spacer {
-    flex-shrink: 0;
+/* Gridlines */
+.gridline {
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    height: 1px;
+    background: var(--gridline);
+}
+
+/* Day separator */
+.day-separator {
+    position: absolute;
+    left: 48px;
+    right: 48px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.day-separator-line {
+    flex: 1;
+    height: 2px;
+    background: var(--accent);
+    opacity: 0.15;
+}
+
+.day-separator-label {
+    font-size: 24px;
+    color: var(--accent);
+    opacity: 0.3;
+    text-transform: uppercase;
 }
 
 /* Empty state */
 .empty-state {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
     text-align: center;
     color: var(--dim);
-    padding: 96px;
     font-size: 36px;
+    padding: 200px 48px;
 }

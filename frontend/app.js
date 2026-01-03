@@ -7,17 +7,16 @@ const state = {
         timestamp: Date.now()
     },
     isDraftMode: false,
-    isEnergyDragging: false,
-    scrollOffset: 0
+    isEnergyDragging: false
 };
 
 // Get user secret from URL
 const secret = window.location.pathname.split('/u/')[1];
 
 // DOM elements
-const app = document.getElementById('app');
+const timeline = document.getElementById('timeline');
+const timelineContent = document.getElementById('timeline-content');
 const exitDraft = document.getElementById('exit-draft');
-const timelinePast = document.getElementById('timeline-past');
 const descriptionInput = document.getElementById('description-input');
 const energySquare = document.getElementById('energy-square');
 const energyNumber = document.getElementById('energy-number');
@@ -31,16 +30,79 @@ const energyTrackIndicator = document.getElementById('energy-track-indicator');
 // Constants
 const MAX_SCROLL_BACK_MS = 12 * 60 * 60 * 1000; // 12 hours
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+const PX_PER_HOUR = 150; // Base pixels per hour
+const LOG_SCALE_FACTOR = 80; // For logarithmic compression
+const ENTRY_HEIGHT = 80; // Approximate height of an entry
+const INPUT_AREA_HEIGHT = 200; // Height of input area
+
+// Time-to-Y position mapping
+// Uses logarithmic scale: more detail for recent times, compressed for older
+function minutesToY(minutes) {
+    if (minutes <= 0) return 0;
+    // Logarithmic scale with linear component for nearby times
+    if (minutes <= 60) {
+        // First hour: mostly linear for detail
+        return minutes * 3;
+    }
+    // After first hour: log compression
+    const firstHourY = 60 * 3; // 180px for first hour
+    const additionalMinutes = minutes - 60;
+    return firstHourY + LOG_SCALE_FACTOR * Math.log(additionalMinutes / 60 + 1) * 60;
+}
+
+// Reverse: Y position to minutes
+function yToMinutes(y) {
+    if (y <= 0) return 0;
+    const firstHourY = 180;
+    if (y <= firstHourY) {
+        return y / 3;
+    }
+    const additionalY = y - firstHourY;
+    return 60 + 60 * (Math.exp(additionalY / (LOG_SCALE_FACTOR * 60)) - 1);
+}
+
+// Convert timestamp to Y position relative to "now"
+function timeToY(timestamp, nowTime) {
+    const diffMs = nowTime - new Date(timestamp).getTime();
+    const diffMinutes = diffMs / 60000;
+    return minutesToY(diffMinutes);
+}
+
+// Parse timestamp from server (ensures UTC interpretation)
+function parseTimestamp(ts) {
+    if (typeof ts === 'string' && !ts.endsWith('Z') && !ts.includes('+')) {
+        return new Date(ts + 'Z');
+    }
+    return new Date(ts);
+}
+
+// Format timestamp for display
+function formatTime(date) {
+    const d = parseTimestamp(date);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+
+    if (diffMins < 1) return 'now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+
+    return d.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+    }).toLowerCase();
+}
 
 // Initialize
 async function init() {
     await fetchEntries();
     renderTimeline();
-    updateTimestamp();
     setupEventListeners();
 
-    // Update timestamp every second
-    setInterval(updateTimestamp, 1000);
+    // Update timestamp display every second
+    setInterval(updateTimestampDisplay, 1000);
 }
 
 // Fetch entries from API
@@ -85,90 +147,73 @@ async function saveEntry() {
     }
 }
 
-// Calculate visual gap using logarithmic scale
-function getVisualGap(minutesDelta) {
-    if (minutesDelta <= 0) return 4;
-    // Log scale: compresses large gaps
-    return Math.min(20 * Math.log10(minutesDelta + 1) + 8, 120);
-}
-
-// Parse timestamp from server (ensures UTC interpretation)
-function parseTimestamp(ts) {
-    // Server returns ISO without Z, so add it to ensure UTC parsing
-    if (typeof ts === 'string' && !ts.endsWith('Z') && !ts.includes('+')) {
-        return new Date(ts + 'Z');
-    }
-    return new Date(ts);
-}
-
-// Format timestamp for display
-function formatTime(date) {
-    const d = parseTimestamp(date);
-    const now = new Date();
-    const diffMs = now - d;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-
-    if (diffMins < 1) return 'now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-
-    return d.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-    }).toLowerCase();
-}
-
-// Check if two dates are on different days
-function isDifferentDay(date1, date2) {
-    const d1 = parseTimestamp(date1);
-    const d2 = parseTimestamp(date2);
-    return d1.toDateString() !== d2.toDateString();
-}
-
-// Render timeline
+// Render the timeline with absolute positioning
 function renderTimeline() {
-    timelinePast.innerHTML = '';
+    const now = Date.now();
+    timelineContent.innerHTML = '';
+
+    // Calculate the y-position where "now" should be
+    // This is at the center of the viewport (where input area is)
+    const viewportHeight = window.innerHeight;
+    const nowY = viewportHeight / 2;
+
+    // Find time range of entries
+    let maxY = nowY + 200; // Some space below "now"
 
     if (state.entries.length === 0) {
-        timelinePast.innerHTML = '<div class="empty-state">no entries yet</div>';
+        timelineContent.innerHTML = '<div class="empty-state">no entries yet</div>';
+        timelineContent.style.height = `${viewportHeight}px`;
         return;
     }
 
-    let prevTimestamp = null;
+    // Calculate positions for all entries
+    const entryPositions = state.entries.map(entry => {
+        const y = nowY + timeToY(entry.timestamp, now);
+        return { entry, y };
+    });
 
-    for (let i = 0; i < state.entries.length; i++) {
-        const entry = state.entries[i];
+    // Find the oldest entry to determine content height
+    const maxEntryY = Math.max(...entryPositions.map(ep => ep.y));
+    maxY = maxEntryY + 200; // Add padding at bottom
+
+    // Set content height
+    timelineContent.style.height = `${maxY}px`;
+
+    // Render gridlines (every hour for first 12 hours)
+    for (let hour = 1; hour <= 12; hour++) {
+        const y = nowY + minutesToY(hour * 60);
+        const gridline = document.createElement('div');
+        gridline.className = 'gridline';
+        gridline.style.top = `${y}px`;
+        timelineContent.appendChild(gridline);
+    }
+
+    // Track days for separators
+    let lastDay = null;
+
+    // Render entries
+    entryPositions.forEach(({ entry, y }) => {
         const entryDate = parseTimestamp(entry.timestamp);
+        const dayKey = entryDate.toDateString();
 
-        // Add day separator if different day from previous
-        if (prevTimestamp && isDifferentDay(entryDate, prevTimestamp)) {
+        // Add day separator if different day
+        if (lastDay !== null && lastDay !== dayKey) {
             const separator = document.createElement('div');
             separator.className = 'day-separator';
+            separator.style.top = `${y - 40}px`;
             separator.innerHTML = `
                 <div class="day-separator-line"></div>
                 <span class="day-separator-label">${DAYS[entryDate.getDay()]}</span>
                 <div class="day-separator-line"></div>
             `;
-            timelinePast.appendChild(separator);
+            timelineContent.appendChild(separator);
         }
-
-        // Add time-based spacer
-        if (prevTimestamp) {
-            const minutesDelta = (parseTimestamp(prevTimestamp) - entryDate) / 60000;
-            const gap = getVisualGap(minutesDelta);
-            if (gap > 8) {
-                const spacer = document.createElement('div');
-                spacer.className = 'time-spacer';
-                spacer.style.height = `${gap}px`;
-                timelinePast.appendChild(spacer);
-            }
-        }
+        lastDay = dayKey;
 
         // Create entry element
         const entryEl = document.createElement('div');
         entryEl.className = 'entry';
+        entryEl.style.top = `${y}px`;
 
         let html = `<span class="entry-time">${formatTime(entry.timestamp)}</span>`;
         html += `<span class="entry-description">${entry.description || ''}</span>`;
@@ -184,17 +229,63 @@ function renderTimeline() {
         }
 
         entryEl.innerHTML = html;
-        timelinePast.appendChild(entryEl);
+        timelineContent.appendChild(entryEl);
+    });
 
-        prevTimestamp = entry.timestamp;
+    // Render draft preview if in draft mode
+    if (state.isDraftMode && (state.draft.text || state.draft.energy !== null)) {
+        renderDraftPreview(now, nowY);
     }
 }
 
-// Update timestamp display
-function updateTimestamp() {
-    const date = new Date(state.draft.timestamp);
-    const now = new Date();
-    const diffMs = now - date;
+// Render draft preview at target position
+function renderDraftPreview(now, nowY) {
+    const draftY = nowY + timeToY(state.draft.timestamp, now);
+
+    const draftEl = document.createElement('div');
+    draftEl.className = 'entry draft';
+    draftEl.style.top = `${draftY}px`;
+
+    let html = `<span class="entry-time">${formatTime(state.draft.timestamp)}</span>`;
+    html += `<span class="entry-description">${state.draft.text || '...'}</span>`;
+
+    if (state.draft.energy !== null) {
+        const opacity = state.draft.energy / 10;
+        html += `
+            <div class="entry-energy">
+                <span class="entry-energy-number">${state.draft.energy}</span>
+                <div class="entry-energy-box" style="opacity: ${opacity}"></div>
+            </div>
+        `;
+    }
+
+    draftEl.innerHTML = html;
+    timelineContent.appendChild(draftEl);
+}
+
+// Update timestamp display based on scroll position
+function updateTimestampFromScroll() {
+    const scrollY = timeline.scrollTop;
+    const viewportCenter = window.innerHeight / 2;
+
+    // The input area is at viewport center
+    // scrollY = 0 means "now" is at center
+    // scrollY > 0 means we've scrolled down, so time at center is in the past
+
+    const minutes = yToMinutes(scrollY);
+    const msBack = minutes * 60000;
+
+    // Enforce 12h limit in draft mode
+    const clampedMs = Math.min(msBack, MAX_SCROLL_BACK_MS);
+    state.draft.timestamp = Date.now() - clampedMs;
+
+    updateTimestampDisplay();
+}
+
+// Update the timestamp display text
+function updateTimestampDisplay() {
+    const now = Date.now();
+    const diffMs = now - state.draft.timestamp;
     const diffMins = Math.floor(diffMs / 60000);
 
     if (diffMins < 1) {
@@ -204,7 +295,11 @@ function updateTimestamp() {
     } else {
         const hours = Math.floor(diffMins / 60);
         const mins = diffMins % 60;
-        timestampDisplay.textContent = `${hours}h ${mins}m ago`;
+        if (mins === 0) {
+            timestampDisplay.textContent = `${hours}h ago`;
+        } else {
+            timestampDisplay.textContent = `${hours}h ${mins}m ago`;
+        }
     }
 }
 
@@ -213,6 +308,7 @@ function enterDraftMode() {
     if (!state.isDraftMode) {
         state.isDraftMode = true;
         exitDraft.classList.remove('hidden');
+        renderTimeline(); // Re-render to show draft preview
     }
 }
 
@@ -224,14 +320,17 @@ function exitDraftMode() {
         energy: null,
         timestamp: Date.now()
     };
-    state.scrollOffset = 0;
 
     descriptionInput.value = '';
     energyNumber.textContent = '';
     energySquare.dataset.energy = '';
     energyBox.style.setProperty('--energy-opacity', '0.1');
     exitDraft.classList.add('hidden');
-    updateTimestamp();
+
+    // Scroll back to top (now)
+    timeline.scrollTop = 0;
+    updateTimestampDisplay();
+    renderTimeline();
 }
 
 // Set energy value
@@ -251,6 +350,7 @@ function setupEventListeners() {
         if (e.target.value) {
             enterDraftMode();
         }
+        renderTimeline(); // Update draft preview
     });
 
     // Save button
@@ -267,19 +367,26 @@ function setupEventListeners() {
     // Exit draft mode
     exitDraft.addEventListener('click', exitDraftMode);
 
-    // Energy square drag
-    let dragStartY = 0;
-    let dragStartEnergy = 5;
+    // Scroll handling - update timestamp based on scroll position
+    timeline.addEventListener('scroll', () => {
+        if (state.isDraftMode) {
+            updateTimestampFromScroll();
 
+            // Enforce scroll limit for 12h
+            const maxScrollY = minutesToY(12 * 60);
+            if (timeline.scrollTop > maxScrollY) {
+                timeline.scrollTop = maxScrollY;
+            }
+        }
+    });
+
+    // Energy square drag
     const startDrag = (e) => {
         e.preventDefault();
         state.isEnergyDragging = true;
         energyTrack.classList.remove('hidden');
 
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        dragStartY = clientY;
-        dragStartEnergy = state.draft.energy || 5;
-
         updateEnergyFromDrag(clientY);
     };
 
@@ -319,21 +426,10 @@ function setupEventListeners() {
     document.addEventListener('mouseup', endDrag);
     document.addEventListener('touchend', endDrag);
 
-    // Scroll to adjust timestamp in draft mode
-    timelinePast.addEventListener('wheel', (e) => {
-        if (!state.isDraftMode) return;
-
-        e.preventDefault();
-
-        // Scroll up = go back in time
-        const delta = e.deltaY * 100; // Convert to milliseconds
-        const newOffset = Math.max(0, Math.min(MAX_SCROLL_BACK_MS, state.scrollOffset + delta));
-
-        state.scrollOffset = newOffset;
-        state.draft.timestamp = Date.now() - newOffset;
-
-        updateTimestamp();
-    }, { passive: false });
+    // Handle window resize
+    window.addEventListener('resize', () => {
+        renderTimeline();
+    });
 }
 
 // Start the app

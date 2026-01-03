@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>energytrack</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <div id="exit-draft" class="hidden">x</div>
+
+        <div id="timeline-past"></div>
+
+        <div id="input-area">
+            <div id="input-row">
+                <input type="text" id="description-input" placeholder="activity, food, supplement...">
+                <div id="energy-square" data-energy="">
+                    <span id="energy-number"></span>
+                    <div id="energy-box"></div>
+                </div>
+            </div>
+            <div id="input-underline"></div>
+            <div id="input-footer">
+                <span id="timestamp-display"></span>
+                <button id="save-btn">SAVE</button>
+            </div>
+        </div>
+
+        <div id="timeline-future"></div>
+
+        <div id="energy-track" class="hidden">
+            <div id="energy-track-fill"></div>
+            <div id="energy-track-indicator"></div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, CheckConstraint
 from sqlalchemy.orm import relationship
-from database import Base
+from backend.database import Base
 
 
 def generate_secret_key():

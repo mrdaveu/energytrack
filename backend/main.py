@@ -8,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
 from sqlalchemy.orm import Session
 
-from database import engine, get_db, Base
-from models import User, Entry
+from backend.database import engine, get_db, Base
+from backend.models import User, Entry
 
 # Get paths relative to this file
 BASE_DIR = Path(__file__).resolve().parent.parent

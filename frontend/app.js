@@ -267,32 +267,36 @@ function renderTimeline() {
             y: nowY - anchor.y
         }));
 
-    // Track days for separators
-    let lastDay = null;
-    const today = new Date().toDateString();
+    // Render day separators at local midnight boundaries
+    const renderedDays = new Set();
+    const todayKey = new Date().toDateString();
 
-    // Render entries (sorted newest first, so bottom to top visually)
-    entryPositions.forEach(({ entry, y }, index) => {
+    entryPositions.forEach(({ entry }) => {
         const entryDate = parseTimestamp(entry.timestamp);
         const dayKey = entryDate.toDateString();
 
-        // Add day separator when day changes (or for first entry if not today)
-        if (lastDay !== dayKey) {
-            // Don't show separator for today's entries at the very bottom
-            const isFirstEntryToday = index === 0 && dayKey === today;
-            if (!isFirstEntryToday) {
-                const separator = document.createElement('div');
-                separator.className = 'day-separator';
-                separator.style.top = `${y - 40}px`;
-                separator.innerHTML = `
-                    <div class="day-separator-line"></div>
-                    <span class="day-separator-label">${DAYS[entryDate.getDay()]}</span>
-                    <div class="day-separator-line"></div>
-                `;
-                timelineContent.appendChild(separator);
-            }
-        }
-        lastDay = dayKey;
+        // Skip today and already-rendered days
+        if (dayKey === todayKey || renderedDays.has(dayKey)) return;
+        renderedDays.add(dayKey);
+
+        // Calculate Y position for midnight of this day (start of day in local time)
+        const midnight = new Date(entryDate);
+        midnight.setHours(0, 0, 0, 0);
+        const midnightY = nowY - timeToY_entryCentric(midnight.getTime(), currentAnchors);
+
+        const separator = document.createElement('div');
+        separator.className = 'day-separator';
+        separator.style.top = `${midnightY}px`;
+        separator.innerHTML = `
+            <div class="day-separator-line"></div>
+            <span class="day-separator-label">${DAYS[entryDate.getDay()]}</span>
+            <div class="day-separator-line"></div>
+        `;
+        timelineContent.appendChild(separator);
+    });
+
+    // Render entries
+    entryPositions.forEach(({ entry, y }) => {
 
         // Create entry element
         const entryEl = document.createElement('div');

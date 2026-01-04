@@ -192,10 +192,9 @@ body {
 #energy-track {
     position: fixed;
     right: 80px;
-    top: 50%;
-    transform: translateY(-50%);
+    bottom: 60px;
     width: 4px;
-    height: 400px;
+    height: 150px;
     background: var(--dim);
     z-index: 200;
 }
@@ -215,8 +214,8 @@ body {
 
 #energy-track-indicator {
     position: absolute;
-    left: 16px;
-    font-size: 36px;
+    left: 12px;
+    font-size: 24px;
     color: var(--accent);
     transform: translateY(-50%);
 }

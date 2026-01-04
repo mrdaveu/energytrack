@@ -30,43 +30,153 @@ const energyTrackIndicator = document.getElementById('energy-track-indicator');
 // Constants
 const MAX_SCROLL_BACK_MS = 12 * 60 * 60 * 1000; // 12 hours
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-const PX_PER_HOUR = 150; // Base pixels per hour
-const LOG_SCALE_FACTOR = 80; // For logarithmic compression
-const ENTRY_HEIGHT = 80; // Approximate height of an entry
-const INPUT_AREA_HEIGHT = 200; // Height of input area
+const INPUT_AREA_HEIGHT = 250; // Height of input area (increased for visibility)
 
-// Time-to-Y position mapping
-// Uses logarithmic scale: more detail for recent times, compressed for older
-function minutesToY(minutes) {
-    if (minutes <= 0) return 0;
-    // Logarithmic scale with linear component for nearby times
-    if (minutes <= 60) {
-        // First hour: mostly linear for detail
-        return minutes * 3;
+// Entry-centric Y-axis constants
+const MIN_GAP_PX = 80;        // Minimum gap between entries (1 tick)
+const GAP_LOG_FACTOR = 50;    // Log compression for longer gaps
+const COMPRESS_FACTOR = 2;    // Parabolic compression strength
+
+// Allocate Y space for a gap between entries
+function allocateGapSpace(gapMinutes) {
+    if (gapMinutes <= 30) {
+        return MIN_GAP_PX;
     }
-    // After first hour: log compression
-    const firstHourY = 60 * 3; // 180px for first hour
-    const additionalMinutes = minutes - 60;
-    return firstHourY + LOG_SCALE_FACTOR * Math.log(additionalMinutes / 60 + 1) * 60;
+    // Log compression for gaps > 30 min
+    const excessMinutes = gapMinutes - 30;
+    return MIN_GAP_PX + GAP_LOG_FACTOR * Math.log(excessMinutes / 30 + 1);
 }
 
-// Reverse: Y position to minutes
-function yToMinutes(y) {
-    if (y <= 0) return 0;
-    const firstHourY = 180;
-    if (y <= firstHourY) {
-        return y / 3;
+// Position within a gap using parabolic density (most compressed at midpoint)
+// s: 0 = at newer entry, 1 = at older entry
+function yPositionInGap(s, totalGapY) {
+    const k = COMPRESS_FACTOR;
+    // Integral of density function: 1 + k*(1 - 4*(x-0.5)^2)
+    const integral = s + k * s * s * (2 - 4 * s / 3);
+    const totalIntegral = 1 + k * (2 - 4 / 3);
+    return totalGapY * (integral / totalIntegral);
+}
+
+// Inverse: find s from y position (Newton-Raphson)
+function invertYPositionInGap(targetY, totalGapY) {
+    if (totalGapY === 0) return 0;
+    const targetRatio = targetY / totalGapY;
+    const k = COMPRESS_FACTOR;
+    const totalIntegral = 1 + k * (2 - 4 / 3);
+    const targetIntegral = targetRatio * totalIntegral;
+
+    let s = targetRatio; // Initial guess
+    for (let iter = 0; iter < 10; iter++) {
+        const f = s + k * s * s * (2 - 4 * s / 3) - targetIntegral;
+        const fPrime = 1 + k * s * (4 - 4 * s);
+        if (Math.abs(fPrime) < 0.0001) break;
+        const correction = f / fPrime;
+        s -= correction;
+        if (Math.abs(correction) < 0.0001) break;
     }
-    const additionalY = y - firstHourY;
-    return 60 + 60 * (Math.exp(additionalY / (LOG_SCALE_FACTOR * 60)) - 1);
+    return Math.max(0, Math.min(1, s));
 }
 
-// Convert timestamp to Y position relative to "now"
-function timeToY(timestamp, nowTime) {
-    const diffMs = nowTime - parseTimestamp(timestamp).getTime();
-    const diffMinutes = diffMs / 60000;
-    return minutesToY(diffMinutes);
+// Build anchor map from entries (sorted newest first)
+function buildAnchorMap(entries, now) {
+    // Sort entries newest first
+    const sorted = [...entries].sort((a, b) =>
+        parseTimestamp(b.timestamp).getTime() - parseTimestamp(a.timestamp).getTime()
+    );
+
+    // Start with "now" as first anchor at y=0
+    const anchors = [{ time: now, y: 0, isNow: true }];
+    let currentY = 0;
+
+    sorted.forEach(entry => {
+        const entryTime = parseTimestamp(entry.timestamp).getTime();
+        const prevAnchor = anchors[anchors.length - 1];
+        const gapMs = prevAnchor.time - entryTime;
+        const gapMinutes = gapMs / 60000;
+
+        const gapY = allocateGapSpace(gapMinutes);
+        currentY += gapY;
+
+        anchors.push({
+            time: entryTime,
+            y: currentY,
+            gapFromPrev: gapMinutes,
+            gapY: gapY,
+            entry: entry
+        });
+    });
+
+    return anchors;
 }
+
+// Convert timestamp to Y using entry-centric mapping
+function timeToY_entryCentric(timestamp, anchors) {
+    const time = typeof timestamp === 'number' ? timestamp : parseTimestamp(timestamp).getTime();
+
+    // Find which gap this time falls into
+    for (let i = 0; i < anchors.length - 1; i++) {
+        const upper = anchors[i];     // More recent
+        const lower = anchors[i + 1]; // Older
+
+        if (time <= upper.time && time >= lower.time) {
+            const gapDuration = upper.time - lower.time;
+            if (gapDuration === 0) return upper.y;
+            const positionInGap = (upper.time - time) / gapDuration;
+            const yWithinGap = yPositionInGap(positionInGap, lower.gapY);
+            return upper.y + yWithinGap;
+        }
+    }
+
+    // Time is before all entries - extrapolate
+    if (anchors.length > 0) {
+        const oldest = anchors[anchors.length - 1];
+        const extraMs = oldest.time - time;
+        const extraMinutes = extraMs / 60000;
+        const extraY = allocateGapSpace(extraMinutes);
+        return oldest.y + extraY;
+    }
+
+    return 0;
+}
+
+// Convert Y to time using entry-centric mapping (for scroll)
+function yToTime_entryCentric(y, anchors) {
+    // Find which gap this Y falls into
+    for (let i = 0; i < anchors.length - 1; i++) {
+        const upper = anchors[i];
+        const lower = anchors[i + 1];
+
+        if (y >= upper.y && y <= lower.y) {
+            const yWithinGap = y - upper.y;
+            const gapDuration = upper.time - lower.time;
+            const s = invertYPositionInGap(yWithinGap, lower.gapY);
+            const timeOffset = s * gapDuration;
+            return upper.time - timeOffset;
+        }
+    }
+
+    // Y is beyond all entries - extrapolate
+    if (anchors.length > 0) {
+        const oldest = anchors[anchors.length - 1];
+        if (y > oldest.y) {
+            const extraY = y - oldest.y;
+            // Invert allocateGapSpace: solve MIN_GAP_PX + LOG_FACTOR*log(x/30+1) = extraY
+            if (extraY <= MIN_GAP_PX) {
+                const extraMinutes = (extraY / MIN_GAP_PX) * 30;
+                return oldest.time - extraMinutes * 60000;
+            } else {
+                const logPart = (extraY - MIN_GAP_PX) / GAP_LOG_FACTOR;
+                const extraMinutes = 30 + 30 * (Math.exp(logPart) - 1);
+                return oldest.time - extraMinutes * 60000;
+            }
+        }
+    }
+
+    return Date.now();
+}
+
+// Store current anchor map globally for scroll calculations
+let currentAnchors = [];
 
 // Parse timestamp from server (ensures UTC interpretation)
 function parseTimestamp(ts) {
@@ -149,6 +259,8 @@ async function saveEntry() {
             state.entries.unshift(newEntry);
             exitDraftMode();
             renderTimeline();
+            // Ensure new entry is visible
+            setTimeout(scrollToBottom, 50);
         }
     } catch (err) {
         console.error('Failed to save entry:', err);
@@ -161,47 +273,49 @@ function renderTimeline() {
     timelineContent.innerHTML = '';
 
     const viewportHeight = window.innerHeight;
-    const inputAreaHeight = 180; // Approximate height of input area
 
     if (state.entries.length === 0) {
         timelineContent.innerHTML = '<div class="empty-state">no entries yet</div>';
         timelineContent.style.height = `${viewportHeight}px`;
+        currentAnchors = [{ time: now, y: 0, isNow: true }];
         return;
     }
 
-    // Find the oldest entry to determine total timeline height
-    let maxMinutesAgo = 0;
-    state.entries.forEach(entry => {
-        const diffMs = now - parseTimestamp(entry.timestamp).getTime();
-        const diffMinutes = diffMs / 60000;
-        if (diffMinutes > maxMinutesAgo) maxMinutesAgo = diffMinutes;
-    });
+    // Build entry-centric anchor map
+    currentAnchors = buildAnchorMap(state.entries, now);
 
-    // Calculate total content height
-    // "now" is at the bottom, older entries are above
-    const totalTimelineHeight = minutesToY(maxMinutesAgo) + 200;
+    // Get total Y extent from oldest entry
+    const oldestAnchor = currentAnchors[currentAnchors.length - 1];
+    const totalTimelineHeight = oldestAnchor.y + 200; // Extra padding
+
+    // Calculate content height
     const contentHeight = totalTimelineHeight + viewportHeight;
 
     // "now" Y position is near the bottom (above input area)
-    const nowY = contentHeight - inputAreaHeight - 50;
+    const nowY = contentHeight - INPUT_AREA_HEIGHT - 50;
 
     // Set content height
     timelineContent.style.height = `${contentHeight}px`;
 
-    // Calculate positions for all entries (older = higher up = lower Y value)
-    const entryPositions = state.entries.map(entry => {
-        const timeOffset = timeToY(entry.timestamp, now);
-        const y = nowY - timeOffset; // Subtract to put older entries ABOVE
-        return { entry, y };
-    });
+    // Calculate positions for all entries using anchor map
+    const entryPositions = currentAnchors
+        .filter(a => !a.isNow && a.entry)
+        .map(anchor => ({
+            entry: anchor.entry,
+            y: nowY - anchor.y
+        }));
 
-    // Render gridlines (every hour for first 12 hours)
+    // Render gridlines at hour marks (use anchor-based positioning)
     for (let hour = 1; hour <= 12; hour++) {
-        const y = nowY - minutesToY(hour * 60);
-        const gridline = document.createElement('div');
-        gridline.className = 'gridline';
-        gridline.style.top = `${y}px`;
-        timelineContent.appendChild(gridline);
+        const hourTime = now - hour * 60 * 60000;
+        const yOffset = timeToY_entryCentric(hourTime, currentAnchors);
+        const y = nowY - yOffset;
+        if (y > 0 && y < contentHeight) {
+            const gridline = document.createElement('div');
+            gridline.className = 'gridline';
+            gridline.style.top = `${y}px`;
+            timelineContent.appendChild(gridline);
+        }
     }
 
     // Track days for separators
@@ -256,7 +370,7 @@ function renderTimeline() {
 
 // Render draft preview at target position
 function renderDraftPreview(now, nowY) {
-    const timeOffset = timeToY(state.draft.timestamp, now);
+    const timeOffset = timeToY_entryCentric(state.draft.timestamp, currentAnchors);
     const draftY = nowY - timeOffset; // Subtract to match entry positioning
 
     const draftEl = document.createElement('div');
@@ -286,14 +400,14 @@ function updateTimestampFromScroll() {
     const maxScroll = timeline.scrollHeight - timeline.clientHeight;
     const scrollFromBottom = maxScroll - timeline.scrollTop;
 
-    // scrollFromBottom = 0 means we're at the bottom (now)
-    // scrollFromBottom > 0 means we've scrolled up (back in time)
-    const minutes = yToMinutes(scrollFromBottom);
-    const msBack = minutes * 60000;
+    // Use entry-centric mapping to convert scroll position to time
+    const now = Date.now();
+    const targetTime = yToTime_entryCentric(scrollFromBottom, currentAnchors);
 
     // Enforce 12h limit in draft mode
-    const clampedMs = Math.min(msBack, MAX_SCROLL_BACK_MS);
-    state.draft.timestamp = Date.now() - clampedMs;
+    const msBack = now - targetTime;
+    const clampedMs = Math.min(Math.max(0, msBack), MAX_SCROLL_BACK_MS);
+    state.draft.timestamp = now - clampedMs;
 
     updateTimestampDisplay();
 }
@@ -389,8 +503,10 @@ function setupEventListeners() {
             updateTimestampFromScroll();
 
             // Enforce scroll limit for 12h (can't scroll too far up)
+            const now = Date.now();
+            const twelveHoursAgo = now - MAX_SCROLL_BACK_MS;
+            const maxScrollUp = timeToY_entryCentric(twelveHoursAgo, currentAnchors);
             const maxScroll = timeline.scrollHeight - timeline.clientHeight;
-            const maxScrollUp = minutesToY(12 * 60);
             const minScrollTop = maxScroll - maxScrollUp;
 
             if (timeline.scrollTop < minScrollTop) {

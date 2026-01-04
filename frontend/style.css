@@ -5,6 +5,7 @@
     --energy-base: #0d2818;
     --dim: rgba(13, 40, 24, 0.35);
     --gridline: rgba(13, 40, 24, 0.08);
+    --gridline-green: rgba(100, 180, 100, 0.4);
 }
 
 * {
@@ -58,9 +59,20 @@ body {
     right: 0;
     bottom: 0;
     padding: 24px 48px 48px;
-    background: var(--bg);
+    background: transparent;
     z-index: 50;
-    box-shadow: 0 -30px 60px 30px var(--bg);
+}
+
+#input-area::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: -100px;
+    background: linear-gradient(to bottom, transparent 0%, var(--bg) 80px);
+    z-index: -1;
+    pointer-events: none;
 }
 
 #input-row {
@@ -263,8 +275,8 @@ body {
     position: absolute;
     left: 24px;
     right: 24px;
-    height: 1px;
-    background: var(--gridline);
+    height: 0;
+    border-top: 1px dashed var(--gridline-green);
 }
 
 /* Day separator */

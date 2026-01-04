@@ -5,7 +5,6 @@
     --energy-base: #0d2818;
     --dim: rgba(13, 40, 24, 0.35);
     --gridline: rgba(13, 40, 24, 0.08);
-    --gridline-green: rgba(100, 180, 100, 0.4);
 }
 
 * {
@@ -268,15 +267,6 @@ body {
     border-left: 4px solid var(--accent);
     padding-left: 20px;
     margin-left: -24px;
-}
-
-/* Gridlines */
-.gridline {
-    position: absolute;
-    left: 24px;
-    right: 24px;
-    height: 0;
-    border-top: 1px dashed var(--gridline-green);
 }
 
 /* Day separator */

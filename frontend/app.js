@@ -32,49 +32,16 @@ const MAX_SCROLL_BACK_MS = 12 * 60 * 60 * 1000; // 12 hours
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const INPUT_AREA_HEIGHT = 250; // Height of input area (increased for visibility)
 
-// Entry-centric Y-axis constants
-const MIN_GAP_PX = 80;        // Minimum gap between entries (1 tick)
-const GAP_LOG_FACTOR = 50;    // Log compression for longer gaps
-const COMPRESS_FACTOR = 2;    // Parabolic compression strength
-
-// Allocate Y space for a gap between entries
+// Block-based Y-axis: fixed distances for time intervals
+// Simple building blocks, no compression functions
 function allocateGapSpace(gapMinutes) {
-    if (gapMinutes <= 30) {
-        return MIN_GAP_PX;
-    }
-    // Log compression for gaps > 30 min
-    const excessMinutes = gapMinutes - 30;
-    return MIN_GAP_PX + GAP_LOG_FACTOR * Math.log(excessMinutes / 30 + 1);
-}
-
-// Position within a gap using parabolic density (most compressed at midpoint)
-// s: 0 = at newer entry, 1 = at older entry
-function yPositionInGap(s, totalGapY) {
-    const k = COMPRESS_FACTOR;
-    // Integral of density function: 1 + k*(1 - 4*(x-0.5)^2)
-    const integral = s + k * s * s * (2 - 4 * s / 3);
-    const totalIntegral = 1 + k * (2 - 4 / 3);
-    return totalGapY * (integral / totalIntegral);
-}
-
-// Inverse: find s from y position (Newton-Raphson)
-function invertYPositionInGap(targetY, totalGapY) {
-    if (totalGapY === 0) return 0;
-    const targetRatio = targetY / totalGapY;
-    const k = COMPRESS_FACTOR;
-    const totalIntegral = 1 + k * (2 - 4 / 3);
-    const targetIntegral = targetRatio * totalIntegral;
-
-    let s = targetRatio; // Initial guess
-    for (let iter = 0; iter < 10; iter++) {
-        const f = s + k * s * s * (2 - 4 * s / 3) - targetIntegral;
-        const fPrime = 1 + k * s * (4 - 4 * s);
-        if (Math.abs(fPrime) < 0.0001) break;
-        const correction = f / fPrime;
-        s -= correction;
-        if (Math.abs(correction) < 0.0001) break;
-    }
-    return Math.max(0, Math.min(1, s));
+    if (gapMinutes <= 0) return 0;
+    if (gapMinutes <= 5) return 60;      // 0-5 min: tight
+    if (gapMinutes <= 30) return 80;     // 5-30 min: small
+    if (gapMinutes <= 60) return 100;    // 30-60 min: medium
+    if (gapMinutes <= 120) return 120;   // 1-2 hours: larger
+    if (gapMinutes <= 360) return 140;   // 2-6 hours: big
+    return 160;                          // 6+ hours: max
 }
 
 // Build anchor map from entries (sorted newest first)
@@ -110,6 +77,7 @@ function buildAnchorMap(entries, now) {
 }
 
 // Convert timestamp to Y using entry-centric mapping
+// Linear interpolation within each gap (simple block-based)
 function timeToY_entryCentric(timestamp, anchors) {
     const time = typeof timestamp === 'number' ? timestamp : parseTimestamp(timestamp).getTime();
 
@@ -121,9 +89,9 @@ function timeToY_entryCentric(timestamp, anchors) {
         if (time <= upper.time && time >= lower.time) {
             const gapDuration = upper.time - lower.time;
             if (gapDuration === 0) return upper.y;
-            const positionInGap = (upper.time - time) / gapDuration;
-            const yWithinGap = yPositionInGap(positionInGap, lower.gapY);
-            return upper.y + yWithinGap;
+            // Linear interpolation within gap
+            const ratio = (upper.time - time) / gapDuration;
+            return upper.y + ratio * lower.gapY;
         }
     }
 
@@ -132,14 +100,14 @@ function timeToY_entryCentric(timestamp, anchors) {
         const oldest = anchors[anchors.length - 1];
         const extraMs = oldest.time - time;
         const extraMinutes = extraMs / 60000;
-        const extraY = allocateGapSpace(extraMinutes);
-        return oldest.y + extraY;
+        return oldest.y + allocateGapSpace(extraMinutes);
     }
 
     return 0;
 }
 
 // Convert Y to time using entry-centric mapping (for scroll)
+// Linear interpolation within each gap
 function yToTime_entryCentric(y, anchors) {
     // Find which gap this Y falls into
     for (let i = 0; i < anchors.length - 1; i++) {
@@ -149,26 +117,20 @@ function yToTime_entryCentric(y, anchors) {
         if (y >= upper.y && y <= lower.y) {
             const yWithinGap = y - upper.y;
             const gapDuration = upper.time - lower.time;
-            const s = invertYPositionInGap(yWithinGap, lower.gapY);
-            const timeOffset = s * gapDuration;
-            return upper.time - timeOffset;
+            // Linear interpolation
+            const ratio = lower.gapY > 0 ? yWithinGap / lower.gapY : 0;
+            return upper.time - ratio * gapDuration;
         }
     }
 
-    // Y is beyond all entries - extrapolate
+    // Y is beyond all entries - extrapolate linearly
     if (anchors.length > 0) {
         const oldest = anchors[anchors.length - 1];
         if (y > oldest.y) {
             const extraY = y - oldest.y;
-            // Invert allocateGapSpace: solve MIN_GAP_PX + LOG_FACTOR*log(x/30+1) = extraY
-            if (extraY <= MIN_GAP_PX) {
-                const extraMinutes = (extraY / MIN_GAP_PX) * 30;
-                return oldest.time - extraMinutes * 60000;
-            } else {
-                const logPart = (extraY - MIN_GAP_PX) / GAP_LOG_FACTOR;
-                const extraMinutes = 30 + 30 * (Math.exp(logPart) - 1);
-                return oldest.time - extraMinutes * 60000;
-            }
+            // Rough inverse: assume max gap size maps to ~6 hours
+            const extraMinutes = (extraY / 160) * 360;
+            return oldest.time - extraMinutes * 60000;
         }
     }
 
@@ -305,38 +267,30 @@ function renderTimeline() {
             y: nowY - anchor.y
         }));
 
-    // Render gridlines at hour marks (use anchor-based positioning)
-    for (let hour = 1; hour <= 12; hour++) {
-        const hourTime = now - hour * 60 * 60000;
-        const yOffset = timeToY_entryCentric(hourTime, currentAnchors);
-        const y = nowY - yOffset;
-        if (y > 0 && y < contentHeight) {
-            const gridline = document.createElement('div');
-            gridline.className = 'gridline';
-            gridline.style.top = `${y}px`;
-            timelineContent.appendChild(gridline);
-        }
-    }
-
     // Track days for separators
     let lastDay = null;
+    const today = new Date().toDateString();
 
-    // Render entries
-    entryPositions.forEach(({ entry, y }) => {
+    // Render entries (sorted newest first, so bottom to top visually)
+    entryPositions.forEach(({ entry, y }, index) => {
         const entryDate = parseTimestamp(entry.timestamp);
         const dayKey = entryDate.toDateString();
 
-        // Add day separator if different day
-        if (lastDay !== null && lastDay !== dayKey) {
-            const separator = document.createElement('div');
-            separator.className = 'day-separator';
-            separator.style.top = `${y - 40}px`;
-            separator.innerHTML = `
-                <div class="day-separator-line"></div>
-                <span class="day-separator-label">${DAYS[entryDate.getDay()]}</span>
-                <div class="day-separator-line"></div>
-            `;
-            timelineContent.appendChild(separator);
+        // Add day separator when day changes (or for first entry if not today)
+        if (lastDay !== dayKey) {
+            // Don't show separator for today's entries at the very bottom
+            const isFirstEntryToday = index === 0 && dayKey === today;
+            if (!isFirstEntryToday) {
+                const separator = document.createElement('div');
+                separator.className = 'day-separator';
+                separator.style.top = `${y - 40}px`;
+                separator.innerHTML = `
+                    <div class="day-separator-line"></div>
+                    <span class="day-separator-label">${DAYS[entryDate.getDay()]}</span>
+                    <div class="day-separator-line"></div>
+                `;
+                timelineContent.appendChild(separator);
+            }
         }
         lastDay = dayKey;
 

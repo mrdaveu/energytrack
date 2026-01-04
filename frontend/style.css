@@ -35,6 +35,13 @@ body {
     bottom: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    /* Hide scrollbar */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+
+#timeline::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/Opera */
 }
 
 #timeline-content {
@@ -44,17 +51,16 @@ body {
     padding: 0 48px;
 }
 
-/* Input area - FIXED at vertical center */
+/* Input area - FIXED at bottom */
 #input-area {
     position: fixed;
     left: 0;
     right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    padding: 24px 48px;
+    bottom: 0;
+    padding: 24px 48px 48px;
     background: var(--bg);
     z-index: 50;
-    box-shadow: 0 0 60px 30px var(--bg);
+    box-shadow: 0 -30px 60px 30px var(--bg);
 }
 
 #input-row {

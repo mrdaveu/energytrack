@@ -101,8 +101,16 @@ async function init() {
     renderTimeline();
     setupEventListeners();
 
+    // Scroll to bottom (now) on load
+    scrollToBottom();
+
     // Update timestamp display every second
     setInterval(updateTimestampDisplay, 1000);
+}
+
+// Scroll to bottom of timeline (where "now" is)
+function scrollToBottom() {
+    timeline.scrollTop = timeline.scrollHeight;
 }
 
 // Fetch entries from API
@@ -152,13 +160,8 @@ function renderTimeline() {
     const now = Date.now();
     timelineContent.innerHTML = '';
 
-    // Calculate the y-position where "now" should be
-    // This is at the center of the viewport (where input area is)
     const viewportHeight = window.innerHeight;
-    const nowY = viewportHeight / 2;
-
-    // Find time range of entries
-    let maxY = nowY + 200; // Some space below "now"
+    const inputAreaHeight = 180; // Approximate height of input area
 
     if (state.entries.length === 0) {
         timelineContent.innerHTML = '<div class="empty-state">no entries yet</div>';
@@ -166,22 +169,35 @@ function renderTimeline() {
         return;
     }
 
-    // Calculate positions for all entries
+    // Find the oldest entry to determine total timeline height
+    let maxMinutesAgo = 0;
+    state.entries.forEach(entry => {
+        const diffMs = now - parseTimestamp(entry.timestamp).getTime();
+        const diffMinutes = diffMs / 60000;
+        if (diffMinutes > maxMinutesAgo) maxMinutesAgo = diffMinutes;
+    });
+
+    // Calculate total content height
+    // "now" is at the bottom, older entries are above
+    const totalTimelineHeight = minutesToY(maxMinutesAgo) + 200;
+    const contentHeight = totalTimelineHeight + viewportHeight;
+
+    // "now" Y position is near the bottom (above input area)
+    const nowY = contentHeight - inputAreaHeight - 50;
+
+    // Set content height
+    timelineContent.style.height = `${contentHeight}px`;
+
+    // Calculate positions for all entries (older = higher up = lower Y value)
     const entryPositions = state.entries.map(entry => {
-        const y = nowY + timeToY(entry.timestamp, now);
+        const timeOffset = timeToY(entry.timestamp, now);
+        const y = nowY - timeOffset; // Subtract to put older entries ABOVE
         return { entry, y };
     });
 
-    // Find the oldest entry to determine content height
-    const maxEntryY = Math.max(...entryPositions.map(ep => ep.y));
-    maxY = maxEntryY + 200; // Add padding at bottom
-
-    // Set content height
-    timelineContent.style.height = `${maxY}px`;
-
     // Render gridlines (every hour for first 12 hours)
     for (let hour = 1; hour <= 12; hour++) {
-        const y = nowY + minutesToY(hour * 60);
+        const y = nowY - minutesToY(hour * 60);
         const gridline = document.createElement('div');
         gridline.className = 'gridline';
         gridline.style.top = `${y}px`;
@@ -240,7 +256,8 @@ function renderTimeline() {
 
 // Render draft preview at target position
 function renderDraftPreview(now, nowY) {
-    const draftY = nowY + timeToY(state.draft.timestamp, now);
+    const timeOffset = timeToY(state.draft.timestamp, now);
+    const draftY = nowY - timeOffset; // Subtract to match entry positioning
 
     const draftEl = document.createElement('div');
     draftEl.className = 'entry draft';
@@ -265,14 +282,13 @@ function renderDraftPreview(now, nowY) {
 
 // Update timestamp display based on scroll position
 function updateTimestampFromScroll() {
-    const scrollY = timeline.scrollTop;
-    const viewportCenter = window.innerHeight / 2;
+    // Calculate how far we've scrolled UP from the bottom
+    const maxScroll = timeline.scrollHeight - timeline.clientHeight;
+    const scrollFromBottom = maxScroll - timeline.scrollTop;
 
-    // The input area is at viewport center
-    // scrollY = 0 means "now" is at center
-    // scrollY > 0 means we've scrolled down, so time at center is in the past
-
-    const minutes = yToMinutes(scrollY);
+    // scrollFromBottom = 0 means we're at the bottom (now)
+    // scrollFromBottom > 0 means we've scrolled up (back in time)
+    const minutes = yToMinutes(scrollFromBottom);
     const msBack = minutes * 60000;
 
     // Enforce 12h limit in draft mode
@@ -327,8 +343,8 @@ function exitDraftMode() {
     energyBox.style.setProperty('--energy-opacity', '0.1');
     exitDraft.classList.add('hidden');
 
-    // Scroll back to top (now)
-    timeline.scrollTop = 0;
+    // Scroll back to bottom (now)
+    scrollToBottom();
     updateTimestampDisplay();
     renderTimeline();
 }
@@ -372,10 +388,13 @@ function setupEventListeners() {
         if (state.isDraftMode) {
             updateTimestampFromScroll();
 
-            // Enforce scroll limit for 12h
-            const maxScrollY = minutesToY(12 * 60);
-            if (timeline.scrollTop > maxScrollY) {
-                timeline.scrollTop = maxScrollY;
+            // Enforce scroll limit for 12h (can't scroll too far up)
+            const maxScroll = timeline.scrollHeight - timeline.clientHeight;
+            const maxScrollUp = minutesToY(12 * 60);
+            const minScrollTop = maxScroll - maxScrollUp;
+
+            if (timeline.scrollTop < minScrollTop) {
+                timeline.scrollTop = minScrollTop;
             }
         }
     });

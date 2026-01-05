@@ -19,9 +19,96 @@ html, body {
     background: var(--bg);
 }
 
-@media screen and(max-width: 768px) {
+/* Mobile styles */
+@media screen and (max-width: 768px) {
     body {
         font-size: 16px;
+    }
+    #timeline-content {
+        padding: 0 16px;
+    }
+    #input-area {
+        padding: 12px 16px 24px;
+    }
+    #input-row {
+        gap: 12px;
+    }
+    #description-input {
+        font-size: 16px;
+        padding: 8px 0;
+    }
+    #energy-number {
+        font-size: 14px;
+        min-width: 24px;
+    }
+    #energy-box {
+        width: 24px;
+        height: 24px;
+    }
+    #energy-square {
+        gap: 8px;
+    }
+    #timestamp-display {
+        font-size: 12px;
+    }
+    #save-btn {
+        font-size: 12px;
+        padding: 8px 16px;
+    }
+    #exit-draft {
+        width: 32px;
+        height: 32px;
+        font-size: 24px;
+        top: 12px;
+        left: 12px;
+    }
+    #energy-track {
+        right: 24px;
+        bottom: 40px;
+        height: 100px;
+    }
+    #energy-track-indicator {
+        font-size: 14px;
+        left: 8px;
+    }
+    .entry {
+        left: 16px;
+        right: 16px;
+        gap: 12px;
+    }
+    .entry-time {
+        font-size: 12px;
+        min-width: 60px;
+    }
+    .entry-description {
+        font-size: 16px;
+    }
+    .entry-energy-number {
+        font-size: 14px;
+    }
+    .entry-energy-box {
+        width: 24px;
+        height: 24px;
+    }
+    .entry-energy {
+        gap: 8px;
+    }
+    .entry.draft {
+        padding-left: 12px;
+        margin-left: -16px;
+        border-left-width: 2px;
+    }
+    .day-separator {
+        left: 16px;
+        right: 16px;
+        gap: 12px;
+    }
+    .day-separator-label {
+        font-size: 12px;
+    }
+    .empty-state {
+        font-size: 16px;
+        padding: 100px 16px;
     }
 }
 

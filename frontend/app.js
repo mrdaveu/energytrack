@@ -33,15 +33,16 @@ const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const INPUT_AREA_HEIGHT = 250; // Height of input area (increased for visibility)
 
 // Block-based Y-axis: fixed distances for time intervals
-// Simple building blocks, no compression functions
+// 80% more sparse, longer gaps get more space
 function allocateGapSpace(gapMinutes) {
     if (gapMinutes <= 0) return 0;
-    if (gapMinutes <= 5) return 60;      // 0-5 min: tight
-    if (gapMinutes <= 30) return 80;     // 5-30 min: small
-    if (gapMinutes <= 60) return 100;    // 30-60 min: medium
-    if (gapMinutes <= 120) return 120;   // 1-2 hours: larger
-    if (gapMinutes <= 360) return 140;   // 2-6 hours: big
-    return 160;                          // 6+ hours: max
+    if (gapMinutes <= 5) return 110;      // 0-5 min: tight
+    if (gapMinutes <= 30) return 145;     // 5-30 min: small
+    if (gapMinutes <= 60) return 180;     // 30-60 min: medium
+    if (gapMinutes <= 120) return 220;    // 1-2 hours: larger
+    if (gapMinutes <= 360) return 280;    // 2-6 hours: big
+    if (gapMinutes <= 720) return 350;    // 6-12 hours: bigger
+    return 420;                           // 12+ hours: max
 }
 
 // Build anchor map from entries (sorted newest first)
@@ -128,8 +129,8 @@ function yToTime_entryCentric(y, anchors) {
         const oldest = anchors[anchors.length - 1];
         if (y > oldest.y) {
             const extraY = y - oldest.y;
-            // Rough inverse: assume max gap size maps to ~6 hours
-            const extraMinutes = (extraY / 160) * 360;
+            // Rough inverse: assume max gap size maps to ~12 hours
+            const extraMinutes = (extraY / 420) * 720;
             return oldest.time - extraMinutes * 60000;
         }
     }
@@ -267,32 +268,31 @@ function renderTimeline() {
             y: nowY - anchor.y
         }));
 
-    // Render day separators at local midnight boundaries
-    const renderedDays = new Set();
-    const todayKey = new Date().toDateString();
+    // Render day separators when day changes between entries
+    let lastDayKey = null;
 
-    entryPositions.forEach(({ entry }) => {
+    // Render entries and day separators
+    entryPositions.forEach(({ entry, y }, index) => {
         const entryDate = parseTimestamp(entry.timestamp);
         const dayKey = entryDate.toDateString();
 
-        // Skip today and already-rendered days
-        if (dayKey === todayKey || renderedDays.has(dayKey)) return;
-        renderedDays.add(dayKey);
+        // Show day separator when day changes (between entries)
+        if (lastDayKey !== null && lastDayKey !== dayKey) {
+            // Place separator between this entry and the previous one
+            const prevY = entryPositions[index - 1].y;
+            const separatorY = (y + prevY) / 2;
 
-        // Calculate Y position for midnight of this day (start of day in local time)
-        const midnight = new Date(entryDate);
-        midnight.setHours(0, 0, 0, 0);
-        const midnightY = nowY - timeToY_entryCentric(midnight.getTime(), currentAnchors);
-
-        const separator = document.createElement('div');
-        separator.className = 'day-separator';
-        separator.style.top = `${midnightY}px`;
-        separator.innerHTML = `
-            <div class="day-separator-line"></div>
-            <span class="day-separator-label">${DAYS[entryDate.getDay()]}</span>
-            <div class="day-separator-line"></div>
-        `;
-        timelineContent.appendChild(separator);
+            const separator = document.createElement('div');
+            separator.className = 'day-separator';
+            separator.style.top = `${separatorY}px`;
+            separator.innerHTML = `
+                <div class="day-separator-line"></div>
+                <span class="day-separator-label">${DAYS[entryDate.getDay()]}</span>
+                <div class="day-separator-line"></div>
+            `;
+            timelineContent.appendChild(separator);
+        }
+        lastDayKey = dayKey;
     });
 
     // Render entries

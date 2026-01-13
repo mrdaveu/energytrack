@@ -179,6 +179,19 @@ async function init() {
 
     // Update timestamp display every second
     setInterval(updateTimestampDisplay, 1000);
+
+    // Refresh entries and reset to "now" when returning to the tab
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible') {
+            await fetchEntries();
+            renderTimeline();
+            if (!state.isDraftMode) {
+                state.draft.timestamp = Date.now();
+                scrollToBottom();
+            }
+            updateTimestampDisplay();
+        }
+    });
 }
 
 // Scroll to bottom of timeline (where "now" is)
